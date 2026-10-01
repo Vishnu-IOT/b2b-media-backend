@@ -16,5 +16,6 @@ router.use('/notifications', require('./notifications'));
 router.use('/resource-categories', require('./resourceCategories'));
 router.use('/resources', require('./resources'));
 router.use('/admin', require('./admin'));
+router.use('/newsletter', require('./newsletter'));
 
 module.exports = router;

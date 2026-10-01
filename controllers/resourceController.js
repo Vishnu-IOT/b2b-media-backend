@@ -10,6 +10,7 @@ const pick = require('../utils/pick');
 const { uniqueSlug } = require('../utils/slug');
 const { normalizeYoutubeUrl } = require('../utils/youtube');
 const { uploadedPaths, removeFiles, collectFiles } = require('../utils/fileUtils');
+const { notifyNewPost } = require('../services/newsletterService');
 
 const FIELDS = ['categoryId', 'title', 'summary', 'content'];
 const FILE_COLUMNS = ['coverImage', 'filePath', 'videoUrl'];
@@ -37,6 +38,13 @@ const buildData = (req) => {
   if (files.file) data.filePath = files.file;
   applyVideo(req, files, data);
   return data;
+};
+
+// Fire-and-forget: never let a newsletter/email failure affect the API response
+const notifyIfNewlyPublished = (post, category, wasPublished) => {
+  if (post.status === 'PUBLISHED' && !wasPublished) {
+    notifyNewPost(post, category).catch((err) => console.error('[newsletter] send failed:', err.message));
+  }
 };
 
 // GET /api/resources?category=<slug>&categoryId=&q=&page=&limit=
@@ -92,12 +100,15 @@ exports.getOne = asyncHandler(async (req, res) => {
 
 exports.create = asyncHandler(async (req, res) => {
   const data = buildData(req);
-  if (!(await ResourceCategory.findByPk(data.categoryId))) throw new AppError('Category not found', 404);
+  const category = await ResourceCategory.findByPk(data.categoryId);
+  if (!category) throw new AppError('Category not found', 404);
 
   data.slug = await uniqueSlug(ResourcePost, data.title);
   const post = ResourcePost.build({ ...data, createdBy: req.user.id });
   applyStatus(post, ['DRAFT', 'PUBLISHED'].includes(req.body.status) ? req.body.status : 'PUBLISHED');
   await post.save();
+
+  notifyIfNewlyPublished(post, category, false); // brand new row, so it was never published before
   return created(res, post, 'Resource post created');
 });
 
@@ -111,11 +122,17 @@ exports.update = asyncHandler(async (req, res) => {
   }
 
   const before = Object.fromEntries(FILE_COLUMNS.map((c) => [c, post[c]]));
+  const wasPublished = post.status === 'PUBLISHED';
   post.set(data);
   if (['DRAFT', 'PUBLISHED'].includes(req.body.status)) applyStatus(post, req.body.status);
   await post.save();
 
   removeFiles(FILE_COLUMNS.filter((c) => before[c] && before[c] !== post[c]).map((c) => before[c]));
+
+  if (post.status === 'PUBLISHED' && !wasPublished) {
+    const category = await post.getCategory();
+    notifyIfNewlyPublished(post, category, wasPublished);
+  }
   return ok(res, post, 'Resource post updated');
 });
 

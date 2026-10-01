@@ -55,6 +55,8 @@ module.exports = {
       { name: { required: true, max: 120 }, email: { required: true, type: 'email' }, password: { required: true, type: 'password' } },
       true
     ),
+    verifyOtp: build({ email: { required: true, type: 'email' }, otp: { required: true, max: 6 } }, true),
+    resendOtp: build({ email: { required: true, type: 'email' } }, true),
     login: build({ email: { required: true, type: 'email' }, password: { required: true, max: 200 } }, true),
     changePassword: build(
       { currentPassword: { required: true, max: 200 }, newPassword: { required: true, type: 'password' } },
@@ -141,4 +143,8 @@ module.exports = {
   answer: make({ questionId: { required: true, type: 'int' }, answer: { required: true, max: LONG } }),
 
   moderation: { status: build({ status: { required: true, in: CONTENT_STATUS_LIST } }, true) },
+
+  newsletter: {
+    subscribe: build({ email: { required: true, type: 'email' } }, true),
+  },
 };

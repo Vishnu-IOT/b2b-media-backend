@@ -8,7 +8,12 @@ module.exports = {
     // The User model hashes the password with bcrypt on create
     await User.findOrCreate({
       where: { email: email() },
-      defaults: { name: 'Super Admin', password: process.env.SEED_ADMIN_PASSWORD || 'ChangeMe@123', role: 'SUPER_ADMIN' },
+      defaults: {
+        name: 'Super Admin',
+        password: process.env.SEED_ADMIN_PASSWORD || 'ChangeMe@123',
+        role: 'SUPER_ADMIN',
+        isEmailVerified: true, // seeded account skips the OTP step
+      },
     });
   },
   async down() {

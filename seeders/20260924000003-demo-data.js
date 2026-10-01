@@ -8,7 +8,7 @@ module.exports = {
 
     const [owner] = await User.findOrCreate({
       where: { email: 'demo@business.com' },
-      defaults: { name: 'Demo Business Admin', password: 'Demo@12345', role: 'BUSINESS_ADMIN' },
+      defaults: { name: 'Demo Business Admin', password: 'Demo@12345', role: 'BUSINESS_ADMIN', isEmailVerified: true },
     });
 
     const [business] = await Business.findOrCreate({

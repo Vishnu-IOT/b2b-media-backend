@@ -60,7 +60,8 @@ exports.getUser = asyncHandler(async (req, res) => {
 
 exports.createUser = asyncHandler(async (req, res) => {
   const { name, email, password, role } = req.body;
-  const user = await User.create({ name, email, password, role: role || 'BUSINESS_ADMIN' });
+  // Super Admin created this account directly, so it skips the OTP step and can log in right away.
+  const user = await User.create({ name, email, password, role: role || 'BUSINESS_ADMIN', isEmailVerified: true });
   return created(res, user, 'User created');
 });
 

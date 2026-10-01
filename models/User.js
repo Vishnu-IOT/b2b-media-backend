@@ -20,11 +20,14 @@ module.exports = (sequelize, DataTypes) => {
       },
       password: { type: DataTypes.STRING(255), allowNull: false },
       role: { type: DataTypes.ENUM(...Object.values(ROLES)), allowNull: false, defaultValue: ROLES.BUSINESS_ADMIN },
+      isEmailVerified: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      otp: { type: DataTypes.STRING(255), allowNull: true }, // bcrypt hash of the current registration OTP
+      otpExpiresAt: { type: DataTypes.DATE, allowNull: true },
     },
     {
       tableName: 'users',
-      // The password is never selected by default; use User.unscoped() when you need the hash (login, change password)
-      defaultScope: { attributes: { exclude: ['password'] } },
+      // password/otp are never selected by default; use User.unscoped() when you need them (login, change password, verify-otp)
+      defaultScope: { attributes: { exclude: ['password', 'otp', 'otpExpiresAt'] } },
       hooks: {
         beforeSave: async (user) => {
           if (user.changed('password')) {
@@ -39,9 +42,27 @@ module.exports = (sequelize, DataTypes) => {
     return bcrypt.compare(plain, this.password);
   };
 
+  User.prototype.setOtp = async function setOtp(plainOtp, expiresInMinutes) {
+    this.otp = await bcrypt.hash(plainOtp, 10);
+    this.otpExpiresAt = new Date(Date.now() + expiresInMinutes * 60 * 1000);
+  };
+
+  User.prototype.verifyOtp = async function verifyOtp(plainOtp) {
+    if (!this.otp || !this.otpExpiresAt) return false;
+    if (this.otpExpiresAt.getTime() < Date.now()) return false;
+    return bcrypt.compare(plainOtp, this.otp);
+  };
+
+  User.prototype.clearOtp = function clearOtp() {
+    this.otp = null;
+    this.otpExpiresAt = null;
+  };
+
   User.prototype.toJSON = function toJSON() {
     const values = { ...this.get() };
     delete values.password;
+    delete values.otp;
+    delete values.otpExpiresAt;
     return values;
   };
 

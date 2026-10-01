@@ -66,7 +66,13 @@ Lists return `data: { items: [...], pagination: { page, limit, total, totalPages
 
 ## Endpoints
 
-**Auth** `/api/auth` — `POST /register` (creates BUSINESS_ADMIN; disable with `ALLOW_PUBLIC_REGISTRATION=false`), `POST /login`, `GET /me`, `PUT /change-password`
+**Auth** `/api/auth` — registration requires email verification (OTP), the newsletter does not:
+- `POST /register` `{ name, email, password }` — creates an unverified BUSINESS_ADMIN and emails a 6-digit OTP (valid `OTP_EXPIRES_MIN` minutes). No token yet. Disable with `ALLOW_PUBLIC_REGISTRATION=false`. Re-registering the same unverified email resends a fresh OTP instead of erroring.
+- `POST /verify-otp` `{ email, otp }` — confirms the OTP, marks the account verified, returns the JWT (this is when the account can actually be used), and sends a "Your account is ready" email with an **Open admin panel** button linking to `ADMIN_PANEL_URL`.
+- `POST /resend-otp` `{ email }` — issues a fresh OTP for a still-unverified account (invalidates the previous one).
+- `POST /login` `{ email, password }` — `403` if the email hasn't been verified yet.
+- `GET /me`, `PUT /change-password`
+Accounts the Super Admin creates directly (`POST /api/admin/users`) skip the OTP step and can log in immediately.
 
 **Business** `/api/business` — `GET /` (directory, `?q=&industry=&location=`), `GET /me`, `PUT /me`, `GET /:idOrSlug` (profile + published content), `POST /`, `PUT /:id`, `DELETE /:id` (Super Admin). Files: `logo`, `coverImage`.
 
@@ -85,9 +91,24 @@ Lists return `data: { items: [...], pagination: { page, limit, total, totalPages
 
 **Q&A** — `/api/questions` (`GET /`, `GET /mine`, `GET /:id`, `POST`, `PUT/DELETE /:id`), `/api/answers` (`GET /?questionId=`, `POST`, `PUT/DELETE /:id`), `/api/notifications` (`GET /?isRead=false`, `GET /unread-count`, `PATCH /read-all`, `PATCH /:id/read`, `DELETE /:id`). Answering creates a `NEW_ANSWER` notification for the question owner (not when you answer your own).
 
+**Newsletter** `/api/newsletter` — no OTP here, subscribing is a single step:
+`POST /subscribe` `{ email }` (adds the email immediately — or reactivates it if previously unsubscribed — and sends a short welcome email), `GET /unsubscribe?token=` (the link in every email's footer).
+Every time a resource post is newly set to `PUBLISHED` (create or update), an email goes out to every active subscriber
+with the title, summary and a link. Without `SMTP_*` configured, emails are logged to the console instead of sent — useful
+for local development.
+
 **Admin** `/api/admin` (Super Admin) — `GET /stats`, `GET /pending`, users CRUD (`/users`), moderation:
 `GET /content/:type?status=PENDING|all`, `PATCH /content/:type/:id/status`, `DELETE /content/:type/:id`
 where `:type` = `businesses | stories | strategies | achievements | products | enquiries | videos | questions | answers`.
+
+## Email templates
+
+`services/emailTemplates.js` holds one shared dark, card-style HTML wrapper (`wrapEmail`) used by every transactional
+email, plus the 4 specific messages: `otpEmail`, `welcomeEmail` (admin panel link, sent after `verify-otp`),
+`subscribeWelcomeEmail`, and `newPostEmail`. They're plain template functions with inline styles (no build step, no
+external fonts/images — safe across email clients) — edit the `ACCENT`/`BG`/`CARD` constants at the top of the file to
+reskin, or edit a single template's `bodyHtml` to change its copy. `EMAIL_BRAND_NAME` (`.env`) sets the small header
+label shown in every email.
 
 ## Uploads
 
@@ -102,11 +123,12 @@ Every create/update endpoint accepts either JSON or `multipart/form-data`.
 ```bash
 API=http://localhost:5000/api
 
-# Register + login
+# Register (sends OTP) -> verify (returns token) -> login later works directly
 curl -X POST $API/auth/register -H 'Content-Type: application/json' \
   -d '{"name":"Asha","email":"asha@example.com","password":"Passw0rd!x"}'
-TOKEN=$(curl -s -X POST $API/auth/login -H 'Content-Type: application/json' \
-  -d '{"email":"asha@example.com","password":"Passw0rd!x"}' | jq -r .data.token)
+TOKEN=$(curl -s -X POST $API/auth/verify-otp -H 'Content-Type: application/json' \
+  -d '{"email":"asha@example.com","otp":"123456"}' | jq -r .data.token)
+# forgot/expired OTP: curl -X POST $API/auth/resend-otp -d '{"email":"asha@example.com"}'
 
 # Create the business profile with a logo (multipart) -> status PENDING
 curl -X POST $API/business -H "Authorization: Bearer $TOKEN" \
@@ -142,6 +164,9 @@ curl -X POST $API/resources -H "Authorization: Bearer $ADMIN" \
   -F categoryId=1 -F title="5 Marketing Strategies for MSMEs" -F summary="..." -F content="<p>...</p>" \
   -F coverImage=@cover.jpg -F file=@guide.pdf -F videoUrl="https://youtu.be/dQw4w9WgXcQ"
 curl "$API/resources?category=marketing&page=1&limit=10"
+
+# Newsletter: one-step subscribe (no OTP), unsubscribe later from the email link
+curl -X POST $API/newsletter/subscribe -H 'Content-Type: application/json' -d '{"email":"reader@example.com"}'
 
 # Q&A + notifications
 curl -X POST $API/questions -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
