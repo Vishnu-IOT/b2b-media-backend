@@ -7,7 +7,7 @@ module.exports = (sequelize, DataTypes) =>
     'Product',
     {
       id: idField(DataTypes),
-      businessId: fkField(DataTypes),
+      businessId: fkField(DataTypes, true), // NULL = platform post (no business)
       name: { type: DataTypes.STRING(255), allowNull: false, validate: { notEmpty: true } },
       slug: { type: DataTypes.STRING(280), allowNull: false, unique: true },
       description: DataTypes.TEXT,

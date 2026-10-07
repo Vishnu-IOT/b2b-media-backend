@@ -110,7 +110,10 @@ exports.listContent = asyncHandler(async (req, res) => {
   const where = {};
   const status = req.query.status || 'PENDING';
   if (status !== 'all') where.status = status;
-  if (req.query.businessId && Model.rawAttributes.businessId) where.businessId = req.query.businessId;
+  // ?businessId=<id> -> one business; ?businessId=none -> platform posts (no business)
+  if (req.query.businessId && Model.rawAttributes.businessId) {
+    where.businessId = req.query.businessId === 'none' ? null : req.query.businessId;
+  }
 
   const include = [];
   if (Model.associations.business) include.push({ model: Business, as: 'business', attributes: ['id', 'companyName', 'slug'] });

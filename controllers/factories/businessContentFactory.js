@@ -8,7 +8,7 @@ const pick = require('../../utils/pick');
 const { uniqueSlug } = require('../../utils/slug');
 const { uploadedPaths, removeFiles, collectFiles } = require('../../utils/fileUtils');
 const { resolveStatus, applyStatus } = require('../../services/statusService');
-const { isManager, resolveBusiness, assertCanManage } = require('../../services/businessService');
+const { isSuperAdmin, isManager, resolveBusiness, assertCanManage } = require('../../services/businessService');
 
 const BUSINESS_PUBLIC_ATTRS = ['id', 'companyName', 'slug', 'logo', 'industry', 'location'];
 
@@ -64,20 +64,35 @@ module.exports = ({
     return item;
   };
 
-  // GET / — public: published items of published businesses
+  // Super Admin only: move a post to another business, or detach it (businessId: '') to make it a platform post.
+  const applyBusinessChange = async (req, item) => {
+    if (!isSuperAdmin(req.user) || !('businessId' in req.body)) return;
+    const raw = req.body.businessId;
+    if (raw === '' || raw === null) {
+      item.businessId = null;
+      return;
+    }
+    const business = await Business.findByPk(raw);
+    if (!business) throw new AppError('Business not found', 404);
+    item.businessId = business.id;
+  };
+
+  // GET / — public: published items of published businesses, plus published platform posts (no business)
   const list = asyncHandler(async (req, res) => {
     const pg = paginate(req.query);
     const where = { status: 'PUBLISHED' };
+    const and = [{ [Op.or]: [{ businessId: null }, { '$business.status$': 'PUBLISHED' }] }];
     if (req.query.businessId) where.businessId = req.query.businessId;
     filterFields.forEach((f) => {
       if (req.query[f]) where[f] = { [Op.like]: `%${req.query[f]}%` };
     });
-    if (req.query.q) where[Op.or] = searchFields.map((f) => ({ [f]: { [Op.like]: `%${req.query.q}%` } }));
+    if (req.query.q) and.push({ [Op.or]: searchFields.map((f) => ({ [f]: { [Op.like]: `%${req.query.q}%` } })) });
+    where[Op.and] = and;
     if (extraWhere) extraWhere(req, where);
 
     const { rows, count } = await Model.findAndCountAll({
       where,
-      include: [{ model: Business, as: 'business', attributes: BUSINESS_PUBLIC_ATTRS, where: { status: 'PUBLISHED' }, required: true }],
+      include: [{ model: Business, as: 'business', attributes: BUSINESS_PUBLIC_ATTRS, required: false }],
       order: defaultOrder,
       limit: pg.limit,
       offset: pg.offset,
@@ -86,11 +101,11 @@ module.exports = ({
     return ok(res, paged(rows, count, pg));
   });
 
-  // GET /mine — the caller's own items in every status (Super Admin: ?businessId=)
+  // GET /mine — the caller's own items in every status (Super Admin: ?businessId=, or none for platform posts)
   const mine = asyncHandler(async (req, res) => {
     const pg = paginate(req.query);
-    const business = await resolveBusiness(req);
-    const where = { businessId: business.id };
+    const business = await resolveBusiness(req, { allowNone: true });
+    const where = { businessId: business ? business.id : null };
     if (req.query.status) where.status = req.query.status;
     const { rows, count } = await Model.findAndCountAll({
       where,
@@ -115,17 +130,18 @@ module.exports = ({
     });
     if (!item) throw new AppError(`${label} not found`, 404);
 
-    const visible = item.status === 'PUBLISHED' && item.business.status === 'PUBLISHED';
+    const visible = item.status === 'PUBLISHED' && (!item.business || item.business.status === 'PUBLISHED');
     if (!visible && !isManager(req.user, item.business)) throw new AppError(`${label} not found`, 404);
     return ok(res, sanitize(item));
   });
 
   const create = asyncHandler(async (req, res) => {
-    const business = await resolveBusiness(req);
+    // Super Admin may omit businessId to publish as the platform itself (no business attached)
+    const business = await resolveBusiness(req, { allowNone: true });
     const data = await buildData(req, null);
     if (slugFrom) data.slug = await uniqueSlug(Model, data[slugFrom]);
 
-    const item = Model.build({ ...data, businessId: business.id });
+    const item = Model.build({ ...data, businessId: business ? business.id : null });
     applyStatus(item, resolveStatus(req.user, req.body.status, null));
     await item.save();
     return created(res, item, `${label} created`);
@@ -137,6 +153,7 @@ module.exports = ({
 
     const before = Object.fromEntries(fileColumns.map((c) => [c, item[c]]));
     item.set(await buildData(req, item));
+    await applyBusinessChange(req, item);
     applyStatus(item, resolveStatus(req.user, req.body.status, item.status));
     await item.save();
 

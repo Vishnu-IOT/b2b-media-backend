@@ -55,11 +55,17 @@ Lists return `data: { items: [...], pagination: { page, limit, total, totalPages
 
 | | BUSINESS_ADMIN | SUPER_ADMIN |
 |---|---|---|
-| Business profile + own content | create / edit / delete **own only** | any business (pass `businessId`) |
+| Business profile + own content | create / edit / delete **own only** | any business (pass `businessId`), or **no business** (see below) |
 | Status they can set | `DRAFT` or `PENDING` (anything else becomes `PENDING`) | any of `DRAFT PENDING PUBLISHED REJECTED` |
 | Approve / reject | no | `PATCH /api/admin/content/:type/:id/status` |
 | Resource categories + posts | read only | full control |
 
+- **Platform posts (no business):** a Super Admin can post stories, strategies, achievements, products, enquiries and videos
+  without attaching a business — just omit `businessId` (or send it empty). These rows have `businessId = NULL`, are
+  `PUBLISHED` by default, appear in the public lists/details with `business: null`, and can only be edited/deleted by a
+  Super Admin. A Super Admin can also move a post to a business, or detach it, with `PUT /:id` + `businessId`
+  (`""` detaches). `GET /api/admin/content/:type?businessId=none` lists only platform posts, and `GET /mine` as Super Admin
+  without `businessId` returns platform posts. Run migration `20261007000001-allow-platform-posts.js` (`npm run db:migrate`).
 - New business content → `PENDING`. Editing published/rejected content sends it back to `PENDING`.
 - Public endpoints only return `PUBLISHED` items **whose business is also `PUBLISHED`**.
 - Owners and Super Admin can still open their own draft/pending/rejected items by id.

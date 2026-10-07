@@ -4,17 +4,23 @@ const AppError = require('../utils/AppError');
 const { collectFiles } = require('../utils/fileUtils');
 
 const isSuperAdmin = (user) => Boolean(user) && user.role === ROLES.SUPER_ADMIN;
-const isManager = (user, business) => isSuperAdmin(user) || (Boolean(user) && business.userId === user.id);
+// `business` is null for platform posts (no business) — only a Super Admin manages those.
+const isManager = (user, business) =>
+  isSuperAdmin(user) || (Boolean(user) && Boolean(business) && business.userId === user.id);
 
 /**
  * Which business is a request acting on?
  * - BUSINESS_ADMIN: always their own business (a body/query businessId is ignored)
- * - SUPER_ADMIN: the business given in body.businessId / query.businessId
+ * - SUPER_ADMIN: the business given in body.businessId / query.businessId.
+ *   With `allowNone`, leaving it out means "no business" (a platform post) and null is returned.
  */
-const resolveBusiness = async (req) => {
+const resolveBusiness = async (req, { allowNone = false } = {}) => {
   if (isSuperAdmin(req.user)) {
     const businessId = req.body.businessId || req.query.businessId;
-    if (!businessId) throw new AppError('businessId is required', 400);
+    if (!businessId) {
+      if (allowNone) return null;
+      throw new AppError('businessId is required', 400);
+    }
     const business = await Business.findByPk(businessId);
     if (!business) throw new AppError('Business not found', 404);
     return business;
